@@ -16,8 +16,8 @@ aarch64.tar.gz::https://github.com/Prouser123/docker-glibc-multiarch-builder/rel
 armv7.tar.gz::https://github.com/Prouser123/docker-glibc-multiarch-builder/releases/download/jcx-$pkgver-r$_pkgrel/glibc-bin-$pkgver-r$_pkgrel-arm-linux-gnueabihf.tar.gz
 nsswitch.conf
 ld.so.conf"
-subpackages="$pkgname-bin $pkgname-dev $pkgname-i18n"
-triggers="$pkgname-bin.trigger=/lib:/usr/lib:/usr/glibc-compat/lib"
+#subpackages="$pkgname-bin $pkgname-dev $pkgname-i18n"
+#triggers="$pkgname-bin.trigger=/lib:/usr/lib:/usr/glibc-compat/lib"
 
 unpack() {
     
@@ -35,43 +35,89 @@ unpack() {
 
     msg "Unpacking $FILE..."
 	$gunzip -c "$FILE" | tar -C "$srcdir" -f - -x || return 1
+
+  # zlib download step (cheat and only do amd64 for now...)
+  export ZLIB_URL='http://archive.ubuntu.com/ubuntu/pool/main/z/zlib/zlib1g_1.2.11.dfsg-2ubuntu1_amd64.deb'
+
+  # Download zlib
+  #wget -O zlib.deb ${ZLIB_URL}
+	#ar vx zlib.deb
+
+	mkdir -p $srcdir/zlib_tmp && cd $srcdir/zlib_tmp
+	wget -O zlib.deb ${ZLIB_URL}
+	ar vx zlib.deb
+	tar xvf data.tar.xz
+  #mv lib/$(ls lib)/* $srcdir/usr/glibc-compat/lib/
+  msg "gay> debug> ls $srcdir/zlib_tmp"
+  ls -lR $srcdir/zlib_tmp
 }
 
 package() {
   mkdir -p "$pkgdir/lib" "$pkgdir/lib64" "$pkgdir/usr/glibc-compat/lib/locale"  "$pkgdir"/usr/glibc-compat/lib64 "$pkgdir"/etc
-  cp -a "$srcdir"/usr "$pkgdir"
+  cp -a "$srcdir"/usr "$pkgdir" # copy main files
+
+  # move ld.so conf and etc nswitch.conf
   cp "$srcdir"/ld.so.conf "$pkgdir"/usr/glibc-compat/etc/ld.so.conf
   cp "$srcdir"/nsswitch.conf "$pkgdir"/etc/nsswitch.conf
-  rm "$pkgdir"/usr/glibc-compat/etc/rpc
-  rm -rf "$pkgdir"/usr/glibc-compat/bin
-  rm -rf "$pkgdir"/usr/glibc-compat/sbin
-  rm -rf "$pkgdir"/usr/glibc-compat/lib/gconv
-  rm -rf "$pkgdir"/usr/glibc-compat/lib/getconf
-  rm -rf "$pkgdir"/usr/glibc-compat/lib/audit
-  rm -rf "$pkgdir"/usr/glibc-compat/share
-  rm -rf "$pkgdir"/usr/glibc-compat/var
-  ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 ${pkgdir}/lib/ld-linux-x86-64.so.2
-  ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 ${pkgdir}/lib64/ld-linux-x86-64.so.2
-  ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 ${pkgdir}/usr/glibc-compat/lib64/ld-linux-x86-64.so.2
-  ln -s /usr/glibc-compat/etc/ld.so.cache ${pkgdir}/etc/ld.so.cache
-	ln -sfn /lib/libc.musl-x86_64.so.1 ${pkgdir}/usr/glibc-compat/lib
+
+
+  # amd64 cheat for linking
+  ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 $pkgdir/lib/ld-linux-x86-64.so.2
+	ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 $pkgdir/lib64/ld-linux-x86-64.so.2
+	ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 $pkgdir/usr/glibc-compat/lib64/ld-linux-x86-64.so.2
+	ln -s /usr/glibc-compat/etc/ld.so.cache $pkgdir/etc/ld.so.cache
+	ln -sfn /lib/libc.musl-x86_64.so.1 $pkgdir/usr/glibc-compat/lib
+
+  # extract zlib
+  msg "gay> moving zlib"
+  cp $srcdir/zlib_tmp/lib/$(ls $srcdir/zlib_tmp/lib)/* "$pkgdir/usr/glibc-compat/lib/"
+  msg "gay> zlib ls"
+  ls -lR $pkgdir/usr/glibc-compat/lib/
+
+  # strip
+  # Run strip on stuff
+	strip "$pkgdir"/usr/glibc-compat/sbin/**; \
+	#strip "$pkgdir"/usr/glibc-compat/lib64/**; \
+	strip "$pkgdir"/usr/glibc-compat/lib/** || echo 'Probably done with errors'; \
+	strip "$pkgdir"/usr/glibc-compat/lib/*/* || echo 'Probably done with errors'; \
+		
+	# Remove unused files (https://github.com/sgerrand/alpine-pkg-glibc/blob/master/APKBUILD)
+	rm "$pkgdir"/usr/glibc-compat/etc/rpc; \
+	rm -rf "$pkgdir"/usr/glibc-compat/bin; \
+	rm -rf "$pkgdir"/usr/glibc-compat/sbin; \
+	rm -rf "$pkgdir"/usr/glibc-compat/lib/gconv; \
+	rm -rf "$pkgdir"/usr/glibc-compat/lib/getconf; \
+	rm -rf "$pkgdir"/usr/glibc-compat/lib/audit; \
+	rm -rf "$pkgdir"/usr/glibc-compat/share; \
+	rm -rf "$pkgdir"/usr/glibc-compat/var; \
+		
+	# Remove object files and static libraries. (https://blog.gilliard.lol/2018/11/05/alpine-jdk11-images.html)
+	rm -rf "$pkgdir"/usr/glibc-compat/*.o; \
+	rm -rf "$pkgdir"/usr/glibc-compat/*.a; \
+	rm -rf "$pkgdir"/usr/glibc-compat/*/*.o; \
+	rm -rf "$pkgdir"/usr/glibc-compat/*/*.a; \
+  
+  # STEP 1 | Copy glibc
+  #mkdir -p "$pkgdir/lib" "$pkgdir/lib64" "$pkgdir/usr/glibc-compat/lib/locale"  "$pkgdir"/usr/glibc-compat/lib64 "$pkgdir"/etc
+  #cp -a "$srcdir"/usr "$pkgdir"
+  #cp "$srcdir"/ld.so.conf "$pkgdir"/usr/glibc-compat/etc/ld.so.conf
+  #cp "$srcdir"/nsswitch.conf "$pkgdir"/etc/nsswitch.conf
+  #rm "$pkgdir"/usr/glibc-compat/etc/rpc
+  #rm -rf "$pkgdir"/usr/glibc-compat/bin
+  #rm -rf "$pkgdir"/usr/glibc-compat/sbin
+  #rm -rf "$pkgdir"/usr/glibc-compat/lib/gconv
+  #rm -rf "$pkgdir"/usr/glibc-compat/lib/getconf
+  #rm -rf "$pkgdir"/usr/glibc-compat/lib/audit
+  #rm -rf "$pkgdir"/usr/glibc-compat/share
+  #rm -rf "$pkgdir"/usr/glibc-compat/var
+  #ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 ${pkgdir}/lib/ld-linux-x86-64.so.2
+  #ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 ${pkgdir}/lib64/ld-linux-x86-64.so.2
+  #ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 ${pkgdir}/usr/glibc-compat/lib64/ld-linux-x86-64.so.2
+  #ln -s /usr/glibc-compat/etc/ld.so.cache ${pkgdir}/etc/ld.so.cache
+	#ln -sfn /lib/libc.musl-x86_64.so.1 ${pkgdir}/usr/glibc-compat/lib
   # jcx hmm???? i dont think this has any effect
   # ln -s /usr/glibc-compat/lib/libc.so.6 ${pkgdir}/lib/libc.so.6
   
-}
-
-bin() {
-  depends="$pkgname libgcc"
-  mkdir -p "$subpkgdir"/usr/glibc-compat
-  cp -a "$srcdir"/usr/glibc-compat/bin "$subpkgdir"/usr/glibc-compat
-  cp -a "$srcdir"/usr/glibc-compat/sbin "$subpkgdir"/usr/glibc-compat
-}
-
-i18n() {
-  depends="$pkgname-bin"
-  arch="noarch"
-  mkdir -p "$subpkgdir"/usr/glibc-compat
-  cp -a "$srcdir"/usr/glibc-compat/share "$subpkgdir"/usr/glibc-compat
 }
 
 sha512sums="24b90355c78a10e8432c1707d6fed19a712a8ce14780ea2c77c89c2d4fd601542d24ad8144913aed984a2de130b223305b73a3c94bc78d7e7ab62faa8e1bfdbc  x86_64.tar.gz
