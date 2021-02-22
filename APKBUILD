@@ -54,6 +54,10 @@ package() {
   ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 ${pkgdir}/lib64/ld-linux-x86-64.so.2
   ln -s /usr/glibc-compat/lib/ld-linux-x86-64.so.2 ${pkgdir}/usr/glibc-compat/lib64/ld-linux-x86-64.so.2
   ln -s /usr/glibc-compat/etc/ld.so.cache ${pkgdir}/etc/ld.so.cache
+	ln -sfn /lib/libc.musl-x86_64.so.1 ${pkgdir}/usr/glibc-compat/lib
+  # jcx hmm???? i dont think this has any effect
+  # ln -s /usr/glibc-compat/lib/libc.so.6 ${pkgdir}/lib/libc.so.6
+  
 }
 
 bin() {
